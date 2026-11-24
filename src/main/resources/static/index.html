@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Break Journey Tracker: Kolkata to Hyderabad</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { theme: { extend: {
+    fontFamily: { sans: ['Barlow', 'system-ui', 'sans-serif'], board: ['"Barlow Condensed"', 'Barlow', 'sans-serif'] },
+    colors: { ink: '#16243A', paper: '#EEF1F6', rail: '#1D4E89', safe: '#1E8E4E', tight: '#B27700', crit: '#C93C3C', line: '#D5DBE5' }
+  } } }
+</script>
+<style>
+  body { background: #EEF1F6; color: #16243A; }
+  .board { font-family: 'Barlow Condensed', Barlow, sans-serif; font-variant-numeric: tabular-nums; }
+  .panel { background: #fff; border: 1px solid #D5DBE5; border-radius: 10px; }
+  .risk-safe { --risk: #1E8E4E; --risk-bg: #E7F5EC; }
+  .risk-tight { --risk: #B27700; --risk-bg: #FFF3D6; }
+  .risk-crit { --risk: #C93C3C; --risk-bg: #FCE8E8; }
+  .hero { border-top: 6px solid var(--risk); }
+  .risk-pill { background: var(--risk-bg); color: var(--risk); border: 1px solid var(--risk); }
+  .leg-card { border-left: 5px solid var(--mode); }
+  .dot { width: 14px; height: 14px; border-radius: 9999px; border: 3px solid var(--mode); background: #fff; }
+  .dot.done { background: var(--mode); }
+  .dot.live { background: var(--mode); box-shadow: 0 0 0 6px color-mix(in srgb, var(--mode) 25%, transparent); }
+  .spine { position: absolute; left: 6px; top: 20px; bottom: -20px; width: 2px; background: #C4CCDA; }
+  .btn { border-radius: 8px; padding: .6rem 1rem; font-weight: 600; border: 1px solid #16243A; transition: background .15s; }
+  .btn:hover { background: #E3E9F2; }
+  .btn:focus-visible, a:focus-visible { outline: 3px solid #1D4E89; outline-offset: 2px; }
+  .btn-solid { background: #16243A; color: #fff; }
+  .btn-solid:hover { background: #24395A; }
+  .btn-warn { border-color: #B27700; color: #6E4900; }
+  .btn-crit { border-color: #C93C3C; color: #8F2323; }
+  .live-dot { width: 9px; height: 9px; border-radius: 9999px; background: #9AA6B8; }
+  .live-dot.on { background: #1E8E4E; animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .bar > div { transition: width .6s linear; }
+  @media (prefers-reduced-motion: reduce) { .live-dot.on { animation: none; } .bar > div { transition: none; } }
+</style>
+</head>
+<body class="font-sans antialiased">
+<header class="bg-ink text-white">
+  <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
+    <div>
+      <h1 class="board text-2xl sm:text-3xl font-semibold leading-tight">Kolkata to Hyderabad break journey</h1>
+      <p class="text-sm text-slate-300">23 and 24 November 2026. Times shown in IST.</p>
+    </div>
+    <div class="flex items-center gap-2 text-sm whitespace-nowrap" role="status" aria-live="polite">
+      <span id="connDot" class="live-dot"></span><span id="connText">Connecting</span>
+    </div>
+  </div>
+</header>
+
+<div id="banner" class="hidden max-w-6xl mx-auto px-4 mt-4" role="alert"></div>
+
+<main class="max-w-6xl mx-auto px-4 py-5 grid gap-5 lg:grid-cols-3">
+  <div class="lg:col-span-2 grid gap-5 content-start">
+    <section id="hero" class="panel hero p-5 risk-safe" aria-labelledby="heroTitle">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <h2 id="heroTitle" class="font-semibold text-lg">Connection at Baramunda bus stand</h2>
+        <span id="riskPill" class="risk-pill rounded-full px-3 py-1 text-sm font-semibold">Loading</span>
+      </div>
+      <div class="mt-3 flex flex-wrap items-end gap-x-8 gap-y-2">
+        <div>
+          <div id="bufferNum" class="board text-7xl font-bold leading-none" style="color:var(--risk)">–</div>
+          <div id="bufferCaption" class="text-sm text-slate-600 mt-1">minutes between your arrival and the bus departure</div>
+        </div>
+        <div>
+          <div class="text-sm text-slate-600">Bus departs in</div>
+          <div id="countdown" class="board text-3xl font-semibold">–</div>
+          <div id="clockLabel" class="text-xs text-slate-500"></div>
+        </div>
+      </div>
+      <ol id="ripple" class="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm"></ol>
+      <p id="riskSummary" class="mt-4 text-[15px] leading-relaxed max-w-prose"></p>
+      <ul id="recs" class="mt-3 space-y-1.5 text-[15px] list-disc pl-5 max-w-prose"></ul>
+    </section>
+
+    <section class="panel p-5" aria-labelledby="tlTitle">
+      <h2 id="tlTitle" class="font-semibold text-lg mb-4">Journey timeline</h2>
+      <ol id="timeline" class="space-y-5"></ol>
+    </section>
+  </div>
+
+  <aside class="grid gap-5 content-start">
+    <section class="panel p-5" aria-labelledby="paxTitle">
+      <h2 id="paxTitle" class="sr-only">Passenger</h2>
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div id="paxName" class="board text-3xl font-semibold leading-tight">–</div>
+          <div id="paxMeta" class="text-sm text-slate-600"></div>
+        </div>
+        <span id="jStatus" class="rounded-full border border-line bg-paper px-3 py-1 text-sm font-semibold">–</span>
+      </div>
+      <p id="paxTitleText" class="mt-3 text-sm text-slate-600"></p>
+      <div class="mt-4">
+        <div class="flex justify-between text-sm mb-1"><span>Journey progress</span><span id="progressText" class="board text-base">0%</span></div>
+        <div class="bar h-2.5 rounded-full bg-paper border border-line overflow-hidden"><div id="progressBar" class="h-full bg-rail" style="width:0%"></div></div>
+      </div>
+      <p id="statusMessage" class="mt-3 text-sm"></p>
+    </section>
+
+    <section class="panel p-5" aria-labelledby="ctlTitle">
+      <h2 id="ctlTitle" class="font-semibold text-lg mb-3">Try a scenario</h2>
+      <p class="text-sm text-slate-600 mb-3">Each delay button sets the total delay on the Vande Bharat (leg 2).</p>
+      <div class="grid grid-cols-2 gap-2">
+        <button class="btn btn-warn" data-delay="30">+30m train delay</button>
+        <button class="btn btn-warn" data-delay="65">+65m train delay</button>
+        <button class="btn btn-crit col-span-2" data-delay="90">+90m train delay</button>
+        <button id="btnSim" class="btn btn-solid">Run live simulation</button>
+        <button id="btnReset" class="btn">Reset</button>
+      </div>
+      <p id="simInfo" class="mt-3 text-xs text-slate-500"></p>
+    </section>
+
+    <section class="panel p-5" aria-labelledby="feedTitle">
+      <h2 id="feedTitle" class="font-semibold text-lg mb-3">Live alerts</h2>
+      <ul id="feed" class="space-y-2 text-sm max-h-80 overflow-y-auto"><li class="text-slate-500">Alerts appear here as delays are reported and legs progress.</li></ul>
+    </section>
+  </aside>
+</main>
+
+<footer class="max-w-6xl mx-auto px-4 pb-8 text-sm text-slate-600">
+  <a class="underline" href="/swagger-ui.html">API docs</a> and <a class="underline" href="/h2-console">H2 console</a>
+</footer>
+
+<script>
+const API = '/api/v1/journeys';
+const IST = 'Asia/Kolkata';
+const MODE = {
+  CAB:      { label: 'Cab',         color: '#8A5A00' },
+  TRAIN:    { label: 'Train',       color: '#1D4E89' },
+  AUTO_CAB: { label: 'Auto or cab', color: '#0F766E' },
+  BUS:      { label: 'Bus',         color: '#6D3FB5' }
+};
+const RISK = {
+  SAFE: { label: 'Safe', cls: 'risk-safe' },
+  TIGHT_CONNECTION: { label: 'Tight connection', cls: 'risk-tight' },
+  CRITICAL_MISSED_CONNECTION: { label: 'Critical: connection at risk', cls: 'risk-crit' }
+};
+const STATUS_LABEL = { SCHEDULED: 'Scheduled', IN_TRANSIT: 'In transit', DELAYED: 'Delayed', COMPLETED: 'Completed',
+                       IN_PROGRESS: 'In progress' };
+
+let journey = null, live = null, countdown = null;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtTime = iso => iso ? new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: IST }) : '–';
+const fmtDay = iso => iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: IST }) : '';
+const fmtDur = sec => {
+  if (sec == null) return '–';
+  const neg = sec < 0; let s = Math.abs(Math.floor(sec));
+  const d = Math.floor(s / 86400); s -= d * 86400;
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60); s -= m * 60;
+  const p = n => String(n).padStart(2, '0');
+  return (neg ? 'departed ' : '') + (d ? d + 'd ' : '') + p(h) + 'h ' + p(m) + 'm ' + p(s) + 's' + (neg ? ' ago' : '');
+};
+
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { const p = await res.json(); msg = p.detail || p.title || msg; } catch (e) { /* keep status text */ }
+    throw new Error(msg);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+/* ---------- rendering ---------- */
+function renderPassenger() {
+  const p = journey.passenger;
+  $('paxName').textContent = p.name;
+  $('paxMeta').textContent = `${p.age} years, ${p.gender}. ${p.contactNumber}`;
+  $('paxTitleText').textContent = journey.title;
+  $('jStatus').textContent = STATUS_LABEL[journey.status] || journey.status;
+  if (live) {
+    $('progressText').textContent = live.progressPercent.toFixed(0) + '%';
+    $('progressBar').style.width = live.progressPercent + '%';
+    $('statusMessage').textContent = live.statusMessage;
+    $('simInfo').textContent = live.simulated
+      ? (live.simulationRunning ? `Simulation running at ${live.speedFactor}x speed.` : 'Simulation finished. Press Reset to start over.')
+      : 'Showing real time. Run the simulation to play the whole journey in a few minutes.';
+  }
+}
+
+function renderHero() {
+  const r = journey.riskAnalysis, meta = RISK[r.riskStatus];
+  const hero = $('hero');
+  hero.className = 'panel hero p-5 ' + meta.cls;
+  $('riskPill').textContent = meta.label;
+  const buf = r.bufferMinutes;
+  $('bufferNum').textContent = buf == null ? '–' : (buf < 0 ? '\u2212' + Math.abs(buf) : buf);
+  $('bufferCaption').textContent = buf != null && buf < 0
+    ? 'minutes: the bus leaves before you can reach it'
+    : 'minutes between reaching the bus stand and the bus departure';
+  $('riskSummary').textContent = r.summary;
+  $('recs').innerHTML = r.recommendations.map(x => `<li>${esc(x)}</li>`).join('');
+
+  const train = journey.legs.find(l => l.mode === 'TRAIN');
+  const auto = journey.legs.find(l => l.mode === 'AUTO_CAB');
+  const bus = journey.legs.find(l => l.mode === 'BUS');
+  const steps = [
+    { t: 'Train reaches Bhubaneswar', adj: r.adjustedBhubaneswarArrival, sch: train && train.scheduledArrival },
+    { t: 'Auto leaves the station', adj: r.adjustedTransferDeparture, sch: auto && auto.scheduledDeparture },
+    { t: 'Reach Baramunda', adj: r.adjustedBaramundaArrival, sch: auto && auto.scheduledArrival },
+    { t: 'Bus departs', adj: r.busDeparture, sch: bus && bus.scheduledDeparture }
+  ];
+  $('ripple').innerHTML = steps.map(s => {
+    const moved = s.adj && s.sch && fmtTime(s.adj) !== fmtTime(s.sch);
+    return `<li class="rounded-lg bg-paper border border-line p-2.5">
+      <div class="text-slate-600">${esc(s.t)}</div>
+      <div class="board text-2xl font-semibold" style="${moved ? 'color:var(--risk)' : ''}">${fmtTime(s.adj)}</div>
+      ${moved ? `<div class="text-xs text-slate-500 line-through">${fmtTime(s.sch)} planned</div>` : '<div class="text-xs text-slate-500">on plan</div>'}
+    </li>`;
+  }).join('');
+  renderCountdown();
+}
+
+function renderCountdown() {
+  let sec = null;
+  if (countdown && countdown.seconds != null) {
+    sec = countdown.simulated ? countdown.seconds : countdown.seconds - Math.floor((Date.now() - countdown.at) / 1000);
+  }
+  $('countdown').textContent = fmtDur(sec);
+  if (live) {
+    $('clockLabel').textContent = (live.simulated ? 'Simulated clock ' : 'Real time ') + fmtDay(live.clock) + ' ' + fmtTime(live.clock);
+  }
+}
+
+function legLines(l) {
+  const rows = [];
+  const add = (k, v) => { if (v !== null && v !== undefined && v !== '') rows.push([k, v]); };
+  add('Service', l.operatorName); add('Vehicle', l.vehicleType);
+  add('PNR', l.mode === 'TRAIN' ? l.bookingReference : null);
+  add('Transaction', l.transactionId);
+  add('Ticket', l.ticketNumber); add('PNR', l.mode === 'BUS' ? l.bookingReference : null);
+  add('Seat', l.seatInfo || l.seatNumber);
+  add('Meal', l.mealPlan);
+  add('Fare', l.fare != null ? `${l.currency} ${Number(l.fare).toFixed(2)}` : null);
+  add('Distance', l.distanceKm != null ? l.distanceKm + ' km' : null);
+  add('Book cab by', l.recommendedBookingTime ? fmtTime(l.recommendedBookingTime) : null);
+  add('Realistic arrival', l.realisticArrival ? fmtTime(l.realisticArrival) + ` (+${l.expectedDelayBufferMinutes} min allowance)` : null);
+  add('Layover', l.layoverBufferMinutes != null ? l.layoverBufferMinutes + ' min' : null);
+  add('Spare before departure', l.connectionBufferMinutes != null ? l.connectionBufferMinutes + ' min' : null);
+  return rows.map(([k, v]) => `<div class="flex gap-2"><dt class="text-slate-500 shrink-0">${esc(k)}</dt><dd class="font-medium break-words">${esc(v)}</dd></div>`).join('');
+}
+
+function renderTimeline() {
+  $('timeline').innerHTML = journey.legs.map((l, i) => {
+    const m = MODE[l.mode], delayed = l.effectiveDeparture && l.scheduledDeparture && fmtTime(l.effectiveDeparture) !== fmtTime(l.scheduledDeparture)
+      || fmtTime(l.effectiveArrival) !== fmtTime(l.scheduledArrival);
+    const dotCls = l.status === 'COMPLETED' ? 'done' : (l.status === 'IN_TRANSIT' ? 'live' : '');
+    const last = i === journey.legs.length - 1;
+    const arrDay = fmtDay(l.effectiveArrival) !== fmtDay(l.effectiveDeparture) ? ` <span class="text-xs text-slate-500">${fmtDay(l.effectiveArrival)}</span>` : '';
+    return `<li class="relative pl-8" style="--mode:${m.color}">
+      ${last ? '' : '<span class="spine"></span>'}
+      <span class="dot ${dotCls} absolute left-0 top-1.5"></span>
+      <div class="leg-card rounded-lg border border-line p-4">
+        <div class="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <div class="text-sm font-semibold" style="color:${m.color}">Leg ${l.legOrder}: ${m.label}</div>
+            <div class="font-semibold leading-snug">${esc(l.origin)}<br><span class="text-slate-500 font-normal">to</span> ${esc(l.destination)}</div>
+          </div>
+          <div class="text-right">
+            <span class="inline-block rounded-full border border-line bg-paper px-2.5 py-0.5 text-xs font-semibold">${STATUS_LABEL[l.status] || l.status}</span>
+            ${l.delayMinutes > 0 ? `<div class="mt-1 text-xs font-semibold text-tight">+${l.delayMinutes} min late</div>` : ''}
+          </div>
+        </div>
+        <div class="mt-2 flex items-baseline gap-3 board text-2xl font-semibold">
+          <span>${fmtTime(l.effectiveDeparture)}</span><span class="text-slate-400 text-lg">to</span><span>${fmtTime(l.effectiveArrival)}${arrDay}</span>
+          ${delayed ? `<span class="text-sm font-medium text-slate-500 line-through">${fmtTime(l.scheduledDeparture)} to ${fmtTime(l.scheduledArrival)}</span>` : ''}
+        </div>
+        <dl class="mt-2 grid gap-1 text-sm sm:grid-cols-2">${legLines(l)}</dl>
+        ${l.notes ? `<p class="mt-2 text-sm text-slate-600">${esc(l.notes)}</p>` : ''}
+      </div>
+    </li>`;
+  }).join('');
+}
+
+function renderAll() { renderPassenger(); renderHero(); renderTimeline(); }
+
+/* ---------- alerts ---------- */
+const LEVEL_STYLE = {
+  INFO: 'border-line bg-white', WARNING: 'border-tight bg-[#FFF3D6]', DANGER: 'border-crit bg-[#FCE8E8]'
+};
+function showBanner(level, title, message) {
+  const b = $('banner');
+  b.className = 'max-w-6xl mx-auto px-4 mt-4';
+  b.innerHTML = `<div class="rounded-lg border-2 p-3 flex items-start justify-between gap-3 ${LEVEL_STYLE[level] || LEVEL_STYLE.INFO}">
+    <div><div class="font-semibold">${esc(title)}</div><div class="text-sm">${esc(message)}</div></div>
+    <button class="btn !py-1 !px-2 text-sm" aria-label="Dismiss alert" id="dismiss">Dismiss</button></div>`;
+  $('dismiss').onclick = () => b.classList.add('hidden');
+}
+function pushAlert(a) {
+  const feed = $('feed');
+  if (feed.firstElementChild && feed.firstElementChild.classList.contains('text-slate-500')) feed.innerHTML = '';
+  const li = document.createElement('li');
+  li.className = 'rounded-lg border p-2.5 ' + (LEVEL_STYLE[a.level] || LEVEL_STYLE.INFO);
+  li.innerHTML = `<div class="font-semibold">${esc(a.title)}</div><div>${esc(a.message)}</div>
+    <div class="text-xs text-slate-500 mt-0.5">${fmtTime(a.timestamp)} IST</div>`;
+  feed.prepend(li);
+  while (feed.children.length > 25) feed.removeChild(feed.lastChild);
+  if (a.level !== 'INFO') showBanner(a.level, a.title, a.message);
+}
+
+/* ---------- live stream ---------- */
+function setConn(on) {
+  $('connDot').className = 'live-dot' + (on ? ' on' : '');
+  $('connText').textContent = on ? 'Live' : 'Reconnecting';
+}
+function applySnapshot(s) {
+  live = s;
+  journey.status = s.journeyStatus;
+  journey.riskAnalysis = s.riskAnalysis;
+  journey.legs.forEach(l => {
+    const x = s.legs.find(v => v.legOrder === l.legOrder);
+    if (x) { l.status = x.status; l.effectiveDeparture = x.effectiveDeparture; l.effectiveArrival = x.effectiveArrival; l.delayMinutes = x.delayMinutes; }
+    const c = s.riskAnalysis.connections.find(v => v.toLegOrder === l.legOrder);
+    l.connectionBufferMinutes = c ? c.bufferMinutes : null;
+  });
+  countdown = { seconds: s.secondsToConnectionDeparture, at: Date.now(), simulated: s.simulated };
+  renderAll();
+}
+function connect() {
+  const es = new EventSource(`${API}/${journey.id}/live-stream`);
+  es.onopen = () => setConn(true);
+  es.onerror = () => setConn(false);
+  es.addEventListener('snapshot', e => applySnapshot(JSON.parse(e.data)));
+  es.addEventListener('alert', e => pushAlert(JSON.parse(e.data)));
+}
+
+/* ---------- actions ---------- */
+async function run(fn) {
+  try { await fn(); } catch (e) { showBanner('DANGER', 'Request failed', e.message); }
+}
+document.querySelectorAll('[data-delay]').forEach(btn => btn.addEventListener('click', () => run(async () => {
+  const train = journey.legs.find(l => l.mode === 'TRAIN');
+  const updated = await api(`/${journey.id}/legs/${train.legOrder}/delay`, { method: 'PATCH', body: JSON.stringify({ delayMinutes: Number(btn.dataset.delay) }) });
+  journey = updated; renderAll();
+})));
+$('btnSim').addEventListener('click', () => run(() => api(`/${journey.id}/simulate/start`, { method: 'POST' })));
+$('btnReset').addEventListener('click', () => run(async () => {
+  await api(`/${journey.id}/simulate/reset`, { method: 'POST' });
+  journey = await api(`/${journey.id}`); live = null; countdown = null; renderAll();
+  $('banner').classList.add('hidden');
+}));
+
+setInterval(renderCountdown, 1000);
+
+(async function init() {
+  try {
+    const list = await api('');
+    if (!list.length) throw new Error('No journey found. The seed data did not load.');
+    journey = list[0];
+    renderAll();
+    connect();
+  } catch (e) {
+    showBanner('DANGER', 'Could not load the journey', e.message);
+  }
+})();
+</script>
+</body>
+</html>

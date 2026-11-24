@@ -1,0 +1,1605 @@
+{
+  "info": {
+    "name": "Break Journey Tracker API",
+    "_postman_id": "b7a1f1c2-5d3e-4c61-9a10-break-journey-01",
+    "description": "Postman collection for the `break-journey-tracker` Spring Boot project (Kolkata to Hyderabad, 23-24 Nov 2026).\n\n## Before you start\n1. Start the app: `mvn spring-boot:run` (port 8080).\n2. Import this collection **and** `Break-Journey-Tracker.postman_environment.json`, then select the environment *Break Journey Tracker - Local*.\n3. Run folders **in order (0 to 6)**. You can use the Collection Runner (Run collection) to execute everything; the tests assert expected values.\n4. Optional: keep http://localhost:8080/ open to watch live SSE updates while you send requests.\n\n## Delay model in one paragraph\nTrain and bus run to the timetable plus their reported delay. Cab/auto legs leave at the later of their planned time and the previous leg's arrival plus a 10 minute handoff. Buffer = bus departure minus arrival at Baramunda. Risk: >= 40 min SAFE, 15-39 TIGHT_CONNECTION, < 15 CRITICAL_MISSED_CONNECTION. The delay you send is the **total** delay (it replaces the old value; 0 clears it).\n\n## Collection variables\n`baseUrl` (default http://localhost:8080) and `journeyId` (set automatically by request 0.1; seeded journey is `1`).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "journeyId",
+      "value": "1"
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Smoke test and setup",
+      "description": "Confirms the app is running, the data is seeded, and captures the journey id into `journeyId`.",
+      "item": [
+        {
+          "name": "0.1 List all journeys (captures journeyId)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys"
+              ]
+            },
+            "description": "**Goal:** Verify startup seeding (`DataInitializer`) and store the id.\n\n**Steps:**\n1. Send the request.\n2. Expect 200 and exactly one journey for Souptik Tat with 4 legs.\n3. The test script saves `journeyId` as a collection variable used by every other request."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const list = pm.response.json();",
+                  "pm.test(\"One journey is seeded\", () => pm.expect(list.length).to.eql(1));",
+                  "const j = list[0];",
+                  "pm.collectionVariables.set(\"journeyId\", j.id);",
+                  "pm.test(\"Passenger is Souptik Tat, 34, Male\", () => { pm.expect(j.passenger.name).to.eql(\"Souptik Tat\"); pm.expect(j.passenger.age).to.eql(34); pm.expect(j.passenger.gender).to.eql(\"Male\"); pm.expect(j.passenger.contactNumber).to.eql(\"+919038577517\"); });",
+                  "pm.test(\"Overall status is SCHEDULED\", () => pm.expect(j.status).to.eql(\"SCHEDULED\"));",
+                  "pm.test(\"Four legs in order CAB, TRAIN, AUTO_CAB, BUS\", () => pm.expect(j.legs.map(l => l.mode)).to.eql([\"CAB\",\"TRAIN\",\"AUTO_CAB\",\"BUS\"]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "0.2 Reset to a clean state",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/simulate/reset",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "simulate",
+                "reset"
+              ]
+            },
+            "description": "**Goal:** Stop any simulation, clear all delays and set every leg to SCHEDULED. Run this before each scenario folder if a previous test left delays behind.\n\n**Steps:** Send the request; expect 200 with `running: false`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test(\"Simulation is not running\", () => pm.expect(s.running).to.eql(false));",
+                  "pm.test(\"Message confirms reset\", () => pm.expect(s.message).to.include(\"reset\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Read journey details",
+      "description": "Verifies every itinerary detail you seeded: PNRs, seats, times, fare and the baseline 50 minute buffer.",
+      "item": [
+        {
+          "name": "1.1 Get journey by id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}"
+              ]
+            },
+            "description": "**Goal:** Check the complete seeded itinerary.\n\n**Steps:** Send; review the tests. They verify leg 1 (cab, 11.7 km), leg 2 (PNR 6951647716, txn 100006932256103, Coach C6 seat 78), leg 3 (7.7 km, 50 min layover) and leg 4 (ticket TVBQ22662970, PNR 7296768, seat K1, INR 1568.05)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json(); const L = j.legs;",
+                  "pm.test(\"Journey title\", () => pm.expect(j.title).to.include(\"Kolkata to Hyderabad Break Journey\"));",
+                  "pm.test(\"Leg 1 cab details\", () => { pm.expect(L[0].distanceKm).to.eql(11.7); pm.expect(L[0].origin).to.include(\"Xclusive Mansion\"); pm.expect(new Date(L[0].recommendedBookingTime).getTime()).to.eql(new Date(\"2026-11-23T04:15:00+05:30\").getTime()); });",
+                  "pm.test(\"Leg 2 train bookings\", () => { pm.expect(L[1].operatorName).to.eql(\"22895 Howrah - Puri Vande Bharat Express\"); pm.expect(L[1].bookingReference).to.eql(\"6951647716\"); pm.expect(L[1].transactionId).to.eql(\"100006932256103\"); pm.expect(L[1].seatInfo).to.include(\"Coach C6\"); pm.expect(L[1].distanceKm).to.eql(436); pm.expect(L[1].expectedDelayBufferMinutes).to.eql(30); });",
+                  "pm.test(\"Leg 2 realistic ETA is 11:58\", () => pm.expect(new Date(L[1].realisticArrival).getTime()).to.eql(new Date(\"2026-11-23T11:58:00+05:30\").getTime()));",
+                  "pm.test(\"Leg 3 transfer\", () => { pm.expect(L[2].distanceKm).to.eql(7.7); pm.expect(L[2].layoverBufferMinutes).to.eql(50); });",
+                  "pm.test(\"Leg 4 bus bookings\", () => { pm.expect(L[3].operatorName).to.eql(\"Shyamoli Paribahan Pvt Ltd\"); pm.expect(L[3].ticketNumber).to.eql(\"TVBQ22662970\"); pm.expect(L[3].bookingReference).to.eql(\"7296768\"); pm.expect(L[3].seatNumber).to.eql(\"K1\"); pm.expect(Number(L[3].fare)).to.eql(1568.05); pm.expect(L[3].currency).to.eql(\"INR\"); });",
+                  "pm.test(\"Baseline buffer 50 min and SAFE\", () => { pm.expect(j.riskAnalysis.bufferMinutes).to.eql(50); pm.expect(j.riskAnalysis.riskStatus).to.eql(\"SAFE\"); });",
+                  "pm.test(\"Bus departs 13:30 IST\", () => pm.expect(new Date(j.riskAnalysis.busDeparture).getTime()).to.eql(new Date(\"2026-11-23T13:30:00+05:30\").getTime()));",
+                  "pm.test(\"Bus arrives Miyapur 24 Nov 08:30 IST\", () => pm.expect(new Date(L[3].scheduledArrival).getTime()).to.eql(new Date(\"2026-11-24T08:30:00+05:30\").getTime()));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.2 Get risk analysis only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/risk",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "risk"
+              ]
+            },
+            "description": "**Goal:** Lightweight endpoint returning just the connection buffers.\n\n**Steps:** Send; expect two connections: leg 1 to 2 (cab to train, 70 min buffer) and leg 3 to 4 (Baramunda to bus, 50 min buffer)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test(\"Two monitored connections\", () => pm.expect(r.connections.length).to.eql(2));",
+                  "pm.test(\"Cab to train buffer is 70\", () => pm.expect(r.connections[0].bufferMinutes).to.eql(70));",
+                  "pm.test(\"Baramunda to bus buffer is 50\", () => pm.expect(r.connections[1].bufferMinutes).to.eql(50));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Vande Bharat delay scenarios (ripple effect)",
+      "description": "Core feature. Each request **sets** the total delay on leg 2 and checks Bhubaneswar arrival, auto departure, Baramunda arrival, buffer and risk. Run in order. If you re-run a single request, run 0.2 first.",
+      "item": [
+        {
+          "name": "2.1 Train +30 min (SAFE)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/2/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "2",
+                "delay"
+              ]
+            },
+            "description": "**Goal:** Report that the Vande Bharat (leg 2) is 30 minutes late.\n\n**Expected ripple:**\n- Arrives Bhubaneswar 11:58\n- Auto/cab leaves 12:10\n- Reaches Baramunda 12:40\n- Buffer before 13:30 bus: 50 min\n- Risk: SAFE\n\nThe 30 minute delay is absorbed by the gap between train arrival and the planned auto departure, so the buffer does not shrink.\n\n**Steps:**\n1. Make sure *Reset* was run (folder 1) so no earlier delay is left.\n2. Send the request.\n3. Open the *Test Results* tab; all tests should pass.\n4. (Optional) Open http://localhost:8080/ in a browser first and watch the alert banner and buffer card change live.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delayMinutes\": 30\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test(\"Leg 2 delayMinutes is 30\", () => pm.expect(r.legs[1].delayMinutes).to.eql(30));",
+                  "pm.test(\"adjustedBhubaneswarArrival is 11:58 IST\", () => pm.expect(new Date(r.riskAnalysis.adjustedBhubaneswarArrival).getTime()).to.eql(new Date('2026-11-23T11:58:00+05:30').getTime()));",
+                  "pm.test(\"adjustedTransferDeparture is 12:10 IST\", () => pm.expect(new Date(r.riskAnalysis.adjustedTransferDeparture).getTime()).to.eql(new Date('2026-11-23T12:10:00+05:30').getTime()));",
+                  "pm.test(\"adjustedBaramundaArrival is 12:40 IST\", () => pm.expect(new Date(r.riskAnalysis.adjustedBaramundaArrival).getTime()).to.eql(new Date('2026-11-23T12:40:00+05:30').getTime()));",
+                  "pm.test(\"Buffer is 50 min\", () => pm.expect(r.riskAnalysis.bufferMinutes).to.eql(50));",
+                  "pm.test(\"Risk is SAFE\", () => pm.expect(r.riskAnalysis.riskStatus).to.eql(\"SAFE\"));",
+                  "pm.test(\"connectionMissed is false\", () => pm.expect(r.riskAnalysis.connectionMissed).to.eql(false));",
+                  "pm.test(\"Recommendations are present\", () => pm.expect(r.riskAnalysis.recommendations.length).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.2 Train +50 min (TIGHT)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/2/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "2",
+                "delay"
+              ]
+            },
+            "description": "**Goal:** Report that the Vande Bharat (leg 2) is 50 minutes late.\n\n**Expected ripple:**\n- Arrives Bhubaneswar 12:18\n- Auto/cab leaves 12:28\n- Reaches Baramunda 12:58\n- Buffer before 13:30 bus: 32 min\n- Risk: TIGHT_CONNECTION\n\nBuffer drops below 40 min, so the risk becomes TIGHT_CONNECTION.\n\n**Steps:**\n1. Make sure *Reset* was run (folder 1) so no earlier delay is left.\n2. Send the request.\n3. Open the *Test Results* tab; all tests should pass.\n4. (Optional) Open http://localhost:8080/ in a browser first and watch the alert banner and buffer card change live.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delayMinutes\": 50\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test(\"Leg 2 delayMinutes is 50\", () => pm.expect(r.legs[1].delayMinutes).to.eql(50));",
+                  "pm.test(\"adjustedBhubaneswarArrival is 12:18 IST\", () => pm.expect(new Date(r.riskAnalysis.adjustedBhubaneswarArrival).getTime()).to.eql(new Date('2026-11-23T12:18:00+05:30').getTime()));",
+                  "pm.test(\"adjustedTransferDeparture is 12:28 IST\", () => pm.expect(new Date(r.riskAnalysis.adjustedTransferDeparture).getTime()).to.eql(new Date('2026-11-23T12:28:00+05:30').getTime()));",
+                  "pm.test(\"adjustedBaramundaArrival is 12:58 IST\", () => pm.expect(new Date(r.riskAnalysis.adjustedBaramundaArrival).getTime()).to.eql(new Date('2026-11-23T12:58:00+05:30').getTime()));",
+                  "pm.test(\"Buffer is 32 min\", () => pm.expect(r.riskAnalysis.bufferMinutes).to.eql(32));",
+                  "pm.test(\"Risk is TIGHT_CONNECTION\", () => pm.expect(r.riskAnalysis.riskStatus).to.eql(\"TIGHT_CONNECTION\"));",
+                  "pm.test(\"connectionMissed is false\", () => pm.expect(r.riskAnalysis.connectionMissed).to.eql(false));",
+                  "pm.test(\"Recommendations are present\", () => pm.expect(r.riskAnalysis.recommendations.length).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.3 Train +65 min (TIGHT)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/2/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "2",
+                "delay"
+              ]
+            },
+            "description": "**Goal:** Report that the Vande Bharat (leg 2) is 65 minutes late.\n\n**Expected ripple:**\n- Arrives Bhubaneswar 12:33\n- Auto/cab leaves 12:43\n- Reaches Baramunda 13:13\n- Buffer before 13:30 bus: 17 min\n- Risk: TIGHT_CONNECTION\n\nOnly 17 minutes remain. Check the recommendations: pre-book the auto, skip lunch, message the operator.\n\n**Steps:**\n1. Make sure *Reset* was run (folder 1) so no earlier delay is left.\n2. Send the request.\n3. Open the *Test Results* tab; all tests should pass.\n4. (Optional) Open http://localhost:8080/ in a browser first and watch the alert banner and buffer card change live.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delayMinutes\": 65\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test(\"Leg 2 delayMinutes is 65\", () => pm.expect(r.legs[1].delayMinutes).to.eql(65));",
+                  "pm.test(\"adjustedBhubaneswarArrival is 12:33 IST\", () => pm.expect(new Date(r.riskAnalysis.adjustedBhubaneswarArrival).getTime()).to.eql(new Date('2026-11-23T12:33:00+05:30').getTime()));",
+                  "pm.test(\"adjustedTransferDeparture is 12:43 IST\", () => pm.expect(new Date(r.riskAnalysis.adjustedTransferDeparture).getTime()).to.eql(new Date('2026-11-23T12:43:00+05:30').getTime()));",
+                  "pm.test(\"adjustedBaramundaArrival is 13:13 IST\", () => pm.expect(new Date(r.riskAnalysis.adjustedBaramundaArrival).getTime()).to.eql(new Date('2026-11-23T13:13:00+05:30').getTime()));",
+                  "pm.test(\"Buffer is 17 min\", () => pm.expect(r.riskAnalysis.bufferMinutes).to.eql(17));",
+                  "pm.test(\"Risk is TIGHT_CONNECTION\", () => pm.expect(r.riskAnalysis.riskStatus).to.eql(\"TIGHT_CONNECTION\"));",
+                  "pm.test(\"connectionMissed is false\", () => pm.expect(r.riskAnalysis.connectionMissed).to.eql(false));",
+                  "pm.test(\"Recommendations are present\", () => pm.expect(r.riskAnalysis.recommendations.length).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.4 Train +70 min (CRITICAL)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/2/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "2",
+                "delay"
+              ]
+            },
+            "description": "**Goal:** Report that the Vande Bharat (leg 2) is 70 minutes late.\n\n**Expected ripple:**\n- Arrives Bhubaneswar 12:38\n- Auto/cab leaves 12:48\n- Reaches Baramunda 13:18\n- Buffer before 13:30 bus: 12 min\n- Risk: CRITICAL_MISSED_CONNECTION\n\nBuffer is under 15 minutes, so the status is critical even though the bus has not yet left.\n\n**Steps:**\n1. Make sure *Reset* was run (folder 1) so no earlier delay is left.\n2. Send the request.\n3. Open the *Test Results* tab; all tests should pass.\n4. (Optional) Open http://localhost:8080/ in a browser first and watch the alert banner and buffer card change live.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delayMinutes\": 70\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test(\"Leg 2 delayMinutes is 70\", () => pm.expect(r.legs[1].delayMinutes).to.eql(70));",
+                  "pm.test(\"adjustedBhubaneswarArrival is 12:38 IST\", () => pm.expect(new Date(r.riskAnalysis.adjustedBhubaneswarArrival).getTime()).to.eql(new Date('2026-11-23T12:38:00+05:30').getTime()));",
+                  "pm.test(\"adjustedTransferDeparture is 12:48 IST\", () => pm.expect(new Date(r.riskAnalysis.adjustedTransferDeparture).getTime()).to.eql(new Date('2026-11-23T12:48:00+05:30').getTime()));",
+                  "pm.test(\"adjustedBaramundaArrival is 13:18 IST\", () => pm.expect(new Date(r.riskAnalysis.adjustedBaramundaArrival).getTime()).to.eql(new Date('2026-11-23T13:18:00+05:30').getTime()));",
+                  "pm.test(\"Buffer is 12 min\", () => pm.expect(r.riskAnalysis.bufferMinutes).to.eql(12));",
+                  "pm.test(\"Risk is CRITICAL_MISSED_CONNECTION\", () => pm.expect(r.riskAnalysis.riskStatus).to.eql(\"CRITICAL_MISSED_CONNECTION\"));",
+                  "pm.test(\"connectionMissed is false\", () => pm.expect(r.riskAnalysis.connectionMissed).to.eql(false));",
+                  "pm.test(\"Recommendations are present\", () => pm.expect(r.riskAnalysis.recommendations.length).to.be.above(0));",
+                  "pm.test(\"Recommends Khandagiri NH-16 bypass boarding\", () => pm.expect(r.riskAnalysis.recommendations.join(\" \")).to.include(\"Khandagiri NH-16 bypass\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.5 Train +90 min (CRITICAL, missed)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/2/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "2",
+                "delay"
+              ]
+            },
+            "description": "**Goal:** Report that the Vande Bharat (leg 2) is 90 minutes late.\n\n**Expected ripple:**\n- Arrives Bhubaneswar 12:58\n- Auto/cab leaves 13:08\n- Reaches Baramunda 13:38\n- Buffer before 13:30 bus: -8 min\n- Risk: CRITICAL_MISSED_CONNECTION\n\nYou arrive 8 minutes after the bus leaves. `connectionMissed` is true and the recommendations include boarding at Khandagiri NH-16 bypass.\n\n**Steps:**\n1. Make sure *Reset* was run (folder 1) so no earlier delay is left.\n2. Send the request.\n3. Open the *Test Results* tab; all tests should pass.\n4. (Optional) Open http://localhost:8080/ in a browser first and watch the alert banner and buffer card change live.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delayMinutes\": 90\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test(\"Leg 2 delayMinutes is 90\", () => pm.expect(r.legs[1].delayMinutes).to.eql(90));",
+                  "pm.test(\"adjustedBhubaneswarArrival is 12:58 IST\", () => pm.expect(new Date(r.riskAnalysis.adjustedBhubaneswarArrival).getTime()).to.eql(new Date('2026-11-23T12:58:00+05:30').getTime()));",
+                  "pm.test(\"adjustedTransferDeparture is 13:08 IST\", () => pm.expect(new Date(r.riskAnalysis.adjustedTransferDeparture).getTime()).to.eql(new Date('2026-11-23T13:08:00+05:30').getTime()));",
+                  "pm.test(\"adjustedBaramundaArrival is 13:38 IST\", () => pm.expect(new Date(r.riskAnalysis.adjustedBaramundaArrival).getTime()).to.eql(new Date('2026-11-23T13:38:00+05:30').getTime()));",
+                  "pm.test(\"Buffer is -8 min\", () => pm.expect(r.riskAnalysis.bufferMinutes).to.eql(-8));",
+                  "pm.test(\"Risk is CRITICAL_MISSED_CONNECTION\", () => pm.expect(r.riskAnalysis.riskStatus).to.eql(\"CRITICAL_MISSED_CONNECTION\"));",
+                  "pm.test(\"connectionMissed is true\", () => pm.expect(r.riskAnalysis.connectionMissed).to.eql(true));",
+                  "pm.test(\"Recommendations are present\", () => pm.expect(r.riskAnalysis.recommendations.length).to.be.above(0));",
+                  "pm.test(\"Recommends Khandagiri NH-16 bypass boarding\", () => pm.expect(r.riskAnalysis.recommendations.join(\" \")).to.include(\"Khandagiri NH-16 bypass\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.6 Journey status after delays",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}"
+              ]
+            },
+            "description": "**Goal:** After a delay is reported, leg 2 should be DELAYED and the overall journey DELAYED.\n\n**Steps:** Send right after 2.5."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Leg 2 is DELAYED\", () => pm.expect(j.legs[1].status).to.eql(\"DELAYED\"));",
+                  "pm.test(\"Journey status is DELAYED\", () => pm.expect(j.status).to.eql(\"DELAYED\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.7 Clear the delay (0 min)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/2/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "2",
+                "delay"
+              ]
+            },
+            "description": "**Goal:** Sending 0 clears the delay, restores the SCHEDULED status and the 50 minute buffer.\n\n**Steps:** Send; expect SAFE and leg 2 back to SCHEDULED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delayMinutes\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test(\"Leg 2 back to SCHEDULED\", () => pm.expect(r.legs[1].status).to.eql(\"SCHEDULED\"));",
+                  "pm.test(\"Buffer restored to 50\", () => pm.expect(r.riskAnalysis.bufferMinutes).to.eql(50));",
+                  "pm.test(\"Journey back to SCHEDULED\", () => pm.expect(r.status).to.eql(\"SCHEDULED\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Threshold boundaries",
+      "description": "Proves the exact cut-offs: 40 min is SAFE, 39 is TIGHT, 15 is TIGHT, 14 is CRITICAL.",
+      "item": [
+        {
+          "name": "3.1 Boundary: +42 min -> buffer 40",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/2/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "2",
+                "delay"
+              ]
+            },
+            "description": "Threshold check. A 42 minute train delay gives a 40 minute buffer, which must be **SAFE**.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delayMinutes\": 42\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test(\"Buffer 40\", () => pm.expect(r.riskAnalysis.bufferMinutes).to.eql(40));",
+                  "pm.test(\"SAFE\", () => pm.expect(r.riskAnalysis.riskStatus).to.eql(\"SAFE\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.2 Boundary: +43 min -> buffer 39",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/2/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "2",
+                "delay"
+              ]
+            },
+            "description": "Threshold check. A 43 minute train delay gives a 39 minute buffer, which must be **TIGHT_CONNECTION**.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delayMinutes\": 43\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test(\"Buffer 39\", () => pm.expect(r.riskAnalysis.bufferMinutes).to.eql(39));",
+                  "pm.test(\"TIGHT_CONNECTION\", () => pm.expect(r.riskAnalysis.riskStatus).to.eql(\"TIGHT_CONNECTION\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.3 Boundary: +67 min -> buffer 15",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/2/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "2",
+                "delay"
+              ]
+            },
+            "description": "Threshold check. A 67 minute train delay gives a 15 minute buffer, which must be **TIGHT_CONNECTION**.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delayMinutes\": 67\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test(\"Buffer 15\", () => pm.expect(r.riskAnalysis.bufferMinutes).to.eql(15));",
+                  "pm.test(\"TIGHT_CONNECTION\", () => pm.expect(r.riskAnalysis.riskStatus).to.eql(\"TIGHT_CONNECTION\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.4 Boundary: +68 min -> buffer 14",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/2/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "2",
+                "delay"
+              ]
+            },
+            "description": "Threshold check. A 68 minute train delay gives a 14 minute buffer, which must be **CRITICAL_MISSED_CONNECTION**.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delayMinutes\": 68\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test(\"Buffer 14\", () => pm.expect(r.riskAnalysis.bufferMinutes).to.eql(14));",
+                  "pm.test(\"CRITICAL_MISSED_CONNECTION\", () => pm.expect(r.riskAnalysis.riskStatus).to.eql(\"CRITICAL_MISSED_CONNECTION\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.5 Clean up",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/simulate/reset",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "simulate",
+                "reset"
+              ]
+            },
+            "description": "Reset delays before the next folder."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Delays on other legs and status updates",
+      "description": "Shows the ripple works on any leg, and manual status changes.",
+      "item": [
+        {
+          "name": "4.1 Cab to Howrah +70 min (train boarding at risk)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/1/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "1",
+                "delay"
+              ]
+            },
+            "description": "**Goal:** A late cab eats the buffer before the 06:10 train.\n\n**Expected:** cab arrives 06:10, train leaves 06:10, so the cab-to-train buffer is 0 and the overall risk is CRITICAL.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delayMinutes\": 70\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test(\"Cab to train buffer is 0\", () => pm.expect(r.riskAnalysis.connections[0].bufferMinutes).to.eql(0));",
+                  "pm.test(\"Overall risk CRITICAL\", () => pm.expect(r.riskAnalysis.riskStatus).to.eql(\"CRITICAL_MISSED_CONNECTION\"));",
+                  "pm.test(\"Recommendation mentions leg 2 connection\", () => pm.expect(r.riskAnalysis.recommendations.join(\" \")).to.include(\"leg 2\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.2 Clear cab delay",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/1/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "1",
+                "delay"
+              ]
+            },
+            "description": "Clear the cab delay (0).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delayMinutes\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Overall risk SAFE again\", () => pm.expect(pm.response.json().riskAnalysis.riskStatus).to.eql(\"SAFE\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.3 Mark leg 1 IN_TRANSIT",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/1/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "1",
+                "status"
+              ]
+            },
+            "description": "**Goal:** Manual status change. Overall journey should become IN_PROGRESS.\n\nAllowed values: SCHEDULED, IN_TRANSIT, DELAYED, COMPLETED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"IN_TRANSIT\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test(\"Leg 1 IN_TRANSIT\", () => pm.expect(r.legs[0].status).to.eql(\"IN_TRANSIT\"));",
+                  "pm.test(\"Journey IN_PROGRESS\", () => pm.expect(r.status).to.eql(\"IN_PROGRESS\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.4 Mark leg 1 COMPLETED",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/1/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "1",
+                "status"
+              ]
+            },
+            "description": "Complete the cab leg.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"COMPLETED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Leg 1 COMPLETED\", () => pm.expect(pm.response.json().legs[0].status).to.eql(\"COMPLETED\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.5 Clean up",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/simulate/reset",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "simulate",
+                "reset"
+              ]
+            },
+            "description": "Reset statuses and delays."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Leg 1 reset (check via GET next)\", () => pm.expect(pm.response.json().running).to.eql(false));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Live simulation",
+      "description": "Runs the accelerated simulation (default 600x: 10 virtual minutes per real second, about 170 seconds for the whole journey). Tip: open http://localhost:8080/ in a browser first to watch it.",
+      "item": [
+        {
+          "name": "5.1 Start simulation",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/simulate/start",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "simulate",
+                "start"
+              ]
+            },
+            "description": "**Steps:** Send; expect running true. The virtual clock starts at 04:00 on 23 Nov.\n\n**Optional:** Before sending, run 2.3 (+65 min) to see the simulation play out a tight connection."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test(\"Running\", () => pm.expect(s.running).to.eql(true));",
+                  "pm.test(\"Not finished\", () => pm.expect(s.finished).to.eql(false));",
+                  "pm.test(\"Speed factor present\", () => pm.expect(s.speedFactor).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.2 Check simulation status (send repeatedly)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/simulate/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "simulate",
+                "status"
+              ]
+            },
+            "description": "**Steps:** Send several times, a few seconds apart. `virtualTime` should keep advancing. When `finished` becomes true the journey is complete (about 3 minutes)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test(\"Has virtualTime\", () => pm.expect(s.virtualTime).to.be.a(\"string\"));",
+                  "console.log(\"Virtual time:\", s.virtualTime, \"running:\", s.running, \"finished:\", s.finished);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.3 Journey progress during simulation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}"
+              ]
+            },
+            "description": "**Steps:** Send while the simulation runs. Leg statuses follow the virtual clock (SCHEDULED, then IN_TRANSIT, then COMPLETED). After it finishes, all legs are COMPLETED and the journey is COMPLETED."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Statuses are valid\", () => j.legs.forEach(l => pm.expect([\"SCHEDULED\",\"IN_TRANSIT\",\"DELAYED\",\"COMPLETED\"]).to.include(l.status)));",
+                  "console.log(\"Journey:\", j.status, j.legs.map(l => l.status).join(\", \"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.4 Reset simulation",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/simulate/reset",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "simulate",
+                "reset"
+              ]
+            },
+            "description": "Stops the simulation and returns everything to SCHEDULED."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Not running\", () => pm.expect(pm.response.json().running).to.eql(false));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.5 Verify reset",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}"
+              ]
+            },
+            "description": "All legs back to SCHEDULED, delays 0, journey SCHEDULED."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"All legs SCHEDULED\", () => j.legs.forEach(l => pm.expect(l.status).to.eql(\"SCHEDULED\")));",
+                  "pm.test(\"No delays\", () => j.legs.forEach(l => pm.expect(l.delayMinutes).to.eql(0)));",
+                  "pm.test(\"Journey SCHEDULED\", () => pm.expect(j.status).to.eql(\"SCHEDULED\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Negative and validation tests",
+      "description": "Each request is expected to fail with the stated status and a JSON problem detail.",
+      "item": [
+        {
+          "name": "6.1 Unknown journey id -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/9999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "9999"
+              ]
+            },
+            "description": "Journey 9999 does not exist."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"Error is a JSON problem detail\", () => pm.expect(pm.response.json().detail).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.2 Unknown leg -> 404",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/9/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "9",
+                "delay"
+              ]
+            },
+            "description": "Leg 9 does not exist.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delayMinutes\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"Error is a JSON problem detail\", () => pm.expect(pm.response.json().detail).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.3 Negative delay -> 400",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/2/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "2",
+                "delay"
+              ]
+            },
+            "description": "Validation: delayMinutes must be 0 or more.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delayMinutes\": -5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Error is a JSON problem detail\", () => pm.expect(pm.response.json().detail).to.be.a(\"string\"));",
+                  "pm.test(\"Field error on delayMinutes\", () => pm.expect(pm.response.json().errors).to.have.property(\"delayMinutes\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.4 Delay above 1440 -> 400",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/2/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "2",
+                "delay"
+              ]
+            },
+            "description": "Validation: delayMinutes must be 1440 or less.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delayMinutes\": 5000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Error is a JSON problem detail\", () => pm.expect(pm.response.json().detail).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.5 Missing delayMinutes -> 400",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/2/delay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "2",
+                "delay"
+              ]
+            },
+            "description": "Validation: delayMinutes is required.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Error is a JSON problem detail\", () => pm.expect(pm.response.json().detail).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.6 Invalid status value -> 400",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/legs/2/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "legs",
+                "2",
+                "status"
+              ]
+            },
+            "description": "Only SCHEDULED, IN_TRANSIT, DELAYED, COMPLETED are accepted.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"FLYING\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Error is a JSON problem detail\", () => pm.expect(pm.response.json().detail).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.7 Non-numeric journey id -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/abc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "abc"
+              ]
+            },
+            "description": "Path variable id must be a number."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Error is a JSON problem detail\", () => pm.expect(pm.response.json().detail).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.8 Simulate unknown journey -> 404",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/9999/simulate/start",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "9999",
+                "simulate",
+                "start"
+              ]
+            },
+            "description": "Cannot simulate a journey that does not exist."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"Error is a JSON problem detail\", () => pm.expect(pm.response.json().detail).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. Live stream (SSE)",
+      "description": "Server-Sent Events are easiest to observe outside the normal Postman request tab.",
+      "item": [
+        {
+          "name": "7.1 Live stream",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/journeys/{{journeyId}}/live-stream",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "journeys",
+                "{{journeyId}}",
+                "live-stream"
+              ]
+            },
+            "description": "**Event types:** `snapshot` (progress, active leg, ETAs, buffer, risk) and `alert` (human readable notices).\n\n**How to test (pick one):**\n1. **Browser dashboard:** open http://localhost:8080/ (it uses this stream).\n2. **curl:** `curl -N http://localhost:8080/api/v1/journeys/1/live-stream` in a terminal, then send requests 2.1 to 2.5 or 5.1 from Postman. You should see an `alert` and a new `snapshot` for every change, plus a snapshot every 5 seconds.\n3. **Postman:** this request may be opened as a plain HTTP request; the response streams, so use *Cancel* once you have seen the first events. Newer Postman versions can show it as an event stream.\n\n**Expected:** first event is a `snapshot` sent immediately on connect."
+          },
+          "event": []
+        }
+      ]
+    }
+  ]
+}

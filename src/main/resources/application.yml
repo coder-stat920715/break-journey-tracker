@@ -1,0 +1,40 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: break-journey-tracker
+  datasource:
+    url: jdbc:h2:mem:journeydb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  jpa:
+    open-in-view: false
+    show-sql: false
+    hibernate:
+      ddl-auto: create-drop
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+tracker:
+  # Virtual seconds that pass per real second while a simulation runs.
+  # 600 = 10 virtual minutes per second, so the ~28 hour journey plays in under 3 minutes.
+  simulation-speed-factor: 600
+  # Minutes needed to step off the train and board the local auto/cab.
+  transfer-handoff-minutes: 10
+  # Buffer >= this many minutes is SAFE.
+  safe-buffer-minutes: 40
+  # Buffer >= this (and below safe) is TIGHT_CONNECTION; anything lower is CRITICAL_MISSED_CONNECTION.
+  tight-buffer-minutes: 15
+  sse-timeout-ms: 1800000
